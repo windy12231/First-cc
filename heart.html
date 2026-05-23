@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>3D 粒子手势交互</title>
+<script type="importmap">{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#0a0a0f;font-family:'Segoe UI','PingFang SC',sans-serif}
+canvas{display:block;width:100%;height:100%}
+#loading{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0a0a0f;z-index:100;color:#fff;font-size:15px;transition:opacity 0.6s;letter-spacing:0.3px}
+#loading .spinner{width:36px;height:36px;border:3px solid rgba(255,255,255,0.06);border-top-color:#ff3366;border-radius:50%;animation:spin 0.7s linear infinite;margin-bottom:18px}
+@keyframes spin{to{transform:rotate(360deg)}}
+#loading.hidden{opacity:0;pointer-events:none}
+
+/* 右侧面板 */
+#panel{position:fixed;top:20px;right:20px;width:200px;background:rgba(16,16,30,0.82);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-radius:14px;border:1px solid rgba(255,255,255,0.06);padding:14px 12px;z-index:20;max-height:calc(100vh - 40px);overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.5)}
+#panel::-webkit-scrollbar{width:2px}
+#panel::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.12);border-radius:2px}
+.p-title{font-size:13px;font-weight:700;color:#fff;margin-bottom:12px;letter-spacing:0.3px;opacity:0.9}
+.p-label{font-size:10px;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:1px;margin-bottom:5px;margin-top:12px}
+.p-label:first-child{margin-top:0}
+.model-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.model-btn{background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.06);border-radius:9px;padding:7px 4px;color:rgba(255,255,255,0.45);font-size:11px;cursor:pointer;transition:all 0.2s;text-align:center;font-family:inherit}
+.model-btn:hover{background:rgba(255,255,255,0.09);color:#fff}
+.model-btn.active{background:rgba(255,51,102,0.18);border-color:#ff3366;color:#ff6b8a}
+.model-btn .icon{display:block;font-size:16px;margin-bottom:1px}
+.model-btn.span2{grid-column:1/3}
+.color-row{display:flex;align-items:center;gap:8px}
+.color-row input[type=color]{width:36px;height:36px;border:none;border-radius:7px;cursor:pointer;background:transparent;padding:0;flex-shrink:0}
+.color-row input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+.color-row input[type=color]::-webkit-color-swatch{border:2px solid rgba(255,255,255,0.12);border-radius:7px}
+.color-hex{font-size:12px;color:rgba(255,255,255,0.4);font-family:monospace}
+.control-info{font-size:10px;color:rgba(255,255,255,0.3);margin-top:10px;padding:8px 10px;background:rgba(255,255,255,0.03);border-radius:8px;line-height:1.5}
+.control-info .val{color:rgba(255,255,255,0.55)}
+.gesture-bar{width:100%;height:3px;background:rgba(255,255,255,0.06);border-radius:2px;margin-top:5px;overflow:hidden}
+.gesture-bar-fill{height:100%;background:linear-gradient(90deg,#ff3366,#ff6b8a);border-radius:2px;transition:width 0.05s;width:0%}
+.cam-btn{width:100%;padding:7px 0;margin-top:6px;border-radius:8px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.04);color:rgba(255,255,255,0.45);font-size:11px;cursor:pointer;font-family:inherit;transition:all 0.2s}
+.cam-btn:hover{background:rgba(255,255,255,0.08);color:#fff}
+.cam-btn.active{background:rgba(60,180,80,0.15);border-color:rgba(60,180,80,0.3);color:#3fb950}
+#fullscreen-btn{position:fixed;top:20px;right:230px;width:34px;height:34px;border-radius:9px;background:rgba(16,16,30,0.7);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.06);color:rgba(255,255,255,0.4);font-size:15px;cursor:pointer;z-index:20;display:flex;align-items:center;justify-content:center;transition:all 0.2s}
+#fullscreen-btn:hover{background:rgba(255,255,255,0.08);color:#fff}
+#mode-badge{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);padding:5px 14px;border-radius:20px;background:rgba(16,16,30,0.6);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.05);color:rgba(255,255,255,0.25);font-size:11px;z-index:10;pointer-events:none;letter-spacing:0.5px;transition:opacity 0.5s}
+@media(max-width:640px){
+  #panel{top:10px;right:10px;width:160px;padding:10px 8px}
+  #fullscreen-btn{top:10px;right:180px;width:30px;height:30px;font-size:13px}
+  .model-btn{font-size:10px;padding:5px 2px;min-height:38px}
+  .model-btn .icon{font-size:14px}
+  .p-title{font-size:12px}
+  #mode-badge{font-size:10px;padding:4px 10px}
+}
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <div>加载中 ...</div>
+</div>
+
+<canvas id="three-canvas"></canvas>
+
+<div id="fullscreen-btn">⛶</div>
+
+<div id="panel">
+  <div class="p-title">✦ 粒子控制</div>
+
+  <div class="p-label">模型</div>
+  <div class="model-grid">
+    <div class="model-btn active" data-model="heart"><span class="icon">❤️</span>爱心</div>
+    <div class="model-btn" data-model="flower"><span class="icon">🌸</span>花朵</div>
+    <div class="model-btn" data-model="saturn"><span class="icon">🪐</span>土星</div>
+    <div class="model-btn" data-model="buddha"><span class="icon">🧘</span>佛像</div>
+    <div class="model-btn span2" data-model="fireworks"><span class="icon">🎆</span>烟花</div>
+  </div>
+
+  <div class="p-label">颜色</div>
+  <div class="color-row">
+    <input type="color" id="colorPicker" value="#ff3366">
+    <span class="color-hex" id="colorHex">#ff3366</span>
+  </div>
+
+  <div class="p-label">控制方式</div>
+  <div class="control-info" id="ctrlInfo">
+    <span id="ctrlLabel">🖱 鼠标 / 触屏</span><br>
+    开合度 <span class="val" id="opennessText">0%</span>
+    <div class="gesture-bar"><div class="gesture-bar-fill" id="opennessBar"></div></div>
+  </div>
+  <button class="cam-btn" id="camToggle">📷 启用摄像头手势</button>
+
+  <div class="p-label" style="margin-top:8px">快捷键</div>
+  <div class="control-info" style="margin-top:0">
+    ↑↓ 开合 &nbsp;·&nbsp; 1-5 切换模型
+  </div>
+</div>
+
+<div id="mode-badge">🖱 鼠标上下移动控制扩散</div>
+
+<script type="module">
+// ============================================================
+import * as THREE from 'three';
+// ============================================================
+
+// ─── 工具 ───
+const rand = (a, b) => Math.random() * (b - a) + a;
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp = (v, mn, mx) => Math.max(mn, Math.min(mx, v));
+const N = 8000;
+
+// ─── 模型生成器 ───
+function genHeart(n) {
+  const p = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const t = rand(0, Math.PI * 2);
+    const s = 3.2;
+    const x = s * 16 * Math.pow(Math.sin(t), 3);
+    const y = s * (13*Math.cos(t) - 5*Math.cos(2*t) - 2*Math.cos(3*t) - Math.cos(4*t));
+    const z = rand(-0.8, 0.8) + (x/s) * 0.15;
+    const fill = rand(0, 1);
+    p[i*3]   = fill < 0.3 ? x * rand(0.3, 0.9) : x;
+    p[i*3+1] = fill < 0.3 ? y * rand(0.3, 0.9) : y;
+    p[i*3+2] = z * rand(0.3, 1);
+  }
+  const sc = 4.2 / Math.max(...p.map(Math.abs));
+  for (let i = 0; i < n*3; i++) p[i] *= sc;
+  return p;
+}
+function genFlower(n) {
+  const p = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const a = rand(0, Math.PI*2), l = rand(0, 1);
+    const r = l < 0.55 ? 3.5 + 2*Math.sin(a*6 + Math.sin(a*2)*0.5) : rand(0.3, 3.5);
+    const rr = r * rand(0.5, 1);
+    p[i*3]   = rr * Math.cos(a);
+    p[i*3+1] = rr * Math.sin(a);
+    p[i*3+2] = l < 0.55 ? rand(-0.6, 0.6) + Math.sin(a*6)*0.4 : rand(-1, 1);
+  }
+  const sc = 4.2 / Math.max(...p.map(Math.abs));
+  for (let i = 0; i < n*3; i++) p[i] *= sc;
+  return p;
+}
+function genSaturn(n) {
+  const p = new Float32Array(n * 3);
+  const rc = Math.floor(n * 0.55), bc = n - rc;
+  let idx = 0;
+  for (let i = 0; i < rc; i++, idx++) {
+    const a = rand(0, Math.PI*2), r = rand(3, 5.2);
+    p[idx*3]=r*Math.cos(a); p[idx*3+1]=rand(-0.12,0.12); p[idx*3+2]=r*Math.sin(a);
+  }
+  for (let i = 0; i < bc; i++, idx++) {
+    const theta=rand(0,Math.PI*2), phi=Math.acos(rand(-1,1)), r=rand(0.5,2.6);
+    p[idx*3]=r*Math.sin(phi)*Math.cos(theta); p[idx*3+1]=r*Math.cos(phi); p[idx*3+2]=r*Math.sin(phi)*Math.sin(theta);
+  }
+  return p;
+}
+function genBuddha(n) {
+  const p = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const l = rand(0, 1), t = rand(0, Math.PI*2);
+    let x, y, z;
+    if (l < 0.03) { // halo sparkles
+      const a=rand(0,Math.PI*2), r=rand(2.5,3);
+      x=r*Math.cos(a); y=4.1+rand(-0.1,0.1); z=r*Math.sin(a)*0.25;
+    } else if (l < 0.15) { // head
+      const r=rand(0.2,1), phi=Math.acos(rand(-1,1));
+      x=r*Math.sin(phi)*Math.cos(t); y=3.3+r*Math.cos(phi)*0.85; z=r*Math.sin(phi)*Math.sin(t)*0.85;
+    } else if (l < 0.3) { // shoulders
+      x=rand(-1.8,1.8); y=rand(2,3.1); z=rand(-0.5,0.5);
+    } else if (l < 0.55) { // torso
+      const r=rand(0.3,2), h=rand(-0.3,2.2);
+      x=r*Math.cos(t)*(1-h/4); y=h+0.6; z=r*Math.sin(t)*0.55*(1-h/4);
+    } else if (l < 0.85) { // legs
+      const a=rand(0,Math.PI*2), r=rand(0.5,2.6);
+      x=(r-0.5)*Math.cos(a); y=rand(-1.7,-0.3); z=rand(-0.7,0.7)+Math.sin(a)*0.35;
+    } else { // lotus base
+      const a=rand(0,Math.PI*2), r=rand(2.2,3.8);
+      x=r*Math.cos(a); y=-1.9+rand(-0.15,0.15); z=r*Math.sin(a)*0.4;
+    }
+    p[i*3]=x; p[i*3+1]=y; p[i*3+2]=z;
+  }
+  const sc = 4.8 / 5;
+  for (let i = 0; i < n*3; i++) p[i] *= sc;
+  return p;
+}
+function genFireworks(n) {
+  const p = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const m = rand(0,1);
+    if (m < 0.35) {
+      const th=rand(0,Math.PI*2), phi=Math.acos(rand(-1,1)), r=rand(0.1,1);
+      p[i*3]=r*Math.sin(phi)*Math.cos(th)*5.5; p[i*3+1]=r*Math.cos(phi)*5.5; p[i*3+2]=r*Math.sin(phi)*Math.sin(th)*5.5;
+    } else if (m < 0.65) {
+      const a=rand(0,Math.PI*2), r=rand(0.2,1), tilt=rand(-0.3,0.3);
+      p[i*3]=r*Math.cos(a)*5.5; p[i*3+1]=tilt*3+rand(-0.4,0.4); p[i*3+2]=r*Math.sin(a)*5.5;
+    } else {
+      p[i*3]=rand(-6,6); p[i*3+1]=rand(-6,6); p[i*3+2]=rand(-6,6);
+    }
+  }
+  return p;
+}
+
+const GENS = { heart: genHeart, flower: genFlower, saturn: genSaturn, buddha: genBuddha, fireworks: genFireworks };
+const MODEL_LIST = ['heart','flower','saturn','buddha','fireworks'];
+
+// ─── Three.js ───
+const canvas = document.getElementById('three-canvas');
+const scene = new THREE.Scene();
+const cam = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.1, 100);
+cam.position.set(0, 0, 16);
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+
+// 粒子纹理
+const tc = document.createElement('canvas');
+tc.width=tc.height=64; const tctx=tc.getContext('2d');
+const g=tctx.createRadialGradient(32,32,0,32,32,32);
+g.addColorStop(0,'rgba(255,255,255,1)'); g.addColorStop(0.15,'rgba(255,255,255,0.9)');
+g.addColorStop(0.4,'rgba(255,255,255,0.35)'); g.addColorStop(1,'rgba(255,255,255,0)');
+tctx.fillStyle=g; tctx.fillRect(0,0,64,64);
+const tex = new THREE.CanvasTexture(tc);
+
+// 粒子数据
+const curP = new Float32Array(N*3), tgtP = new Float32Array(N*3), baseP = new Float32Array(N*3);
+const sDir = new Float32Array(N*3), sDist = new Float32Array(N), pSize = new Float32Array(N), pCol = new Float32Array(N*3);
+
+let selColor = '#ff3366', curModel = 'heart';
+let openness = 0, tgtSpread = 0, curSpread = 0;
+
+function initModel(name) {
+  const pos = GENS[name](N);
+  for (let i = 0; i < N; i++) {
+    const i3=i*3;
+    baseP[i3]=pos[i3]; baseP[i3+1]=pos[i3+1]; baseP[i3+2]=pos[i3+2];
+    curP[i3]=pos[i3]; curP[i3+1]=pos[i3+1]; curP[i3+2]=pos[i3+2];
+    tgtP[i3]=pos[i3]; tgtP[i3+1]=pos[i3+1]; tgtP[i3+2]=pos[i3+2];
+    const d = new THREE.Vector3(rand(-1,1), rand(-1,1), rand(-1,1)).normalize();
+    sDir[i3]=d.x; sDir[i3+1]=d.y; sDir[i3+2]=d.z;
+    sDist[i]=0.3+rand(0,0.7);
+    pSize[i]=0.1+rand(0,0.2);
+  }
+  updateColor();
+  geom.attributes.position.needsUpdate = true;
+}
+
+function updateColor() {
+  const c = new THREE.Color(selColor);
+  for (let i = 0; i < N; i++) {
+    const v = 0.6 + rand(0, 0.4);
+    const col = c.clone().offsetHSL(rand(-0.02,0.02), 0, (v-0.8)*0.35);
+    pCol[i*3]=col.r; pCol[i*3+1]=col.g; pCol[i*3+2]=col.b;
+  }
+  if (geom) geom.attributes.color.needsUpdate = true;
+}
+
+const geom = new THREE.BufferGeometry();
+geom.setAttribute('position', new THREE.BufferAttribute(curP, 3));
+geom.setAttribute('color', new THREE.BufferAttribute(pCol, 3));
+geom.setAttribute('size', new THREE.BufferAttribute(pSize, 1));
+
+const mat = new THREE.PointsMaterial({
+  size: 0.2, map: tex, blending: THREE.AdditiveBlending,
+  depthWrite: false, transparent: true, vertexColors: true,
+  opacity: 0.92, sizeAttenuation: true,
+});
+const system = new THREE.Points(geom, mat);
+const group = new THREE.Group();
+group.add(system);
+scene.add(group);
+
+initModel('heart');
+
+// ─── 控制模式 ───
+let mode = 'mouse'; // 'mouse' | 'camera'
+let camActive = false;
+let mouseYratio = 0.5; // 0-1
+
+// 鼠标 / 触屏
+function onPointer(y) {
+  mouseYratio = 1 - clamp(y / window.innerHeight, 0, 1);
+  if (mode === 'mouse') openness = mouseYratio;
+}
+canvas.addEventListener('mousemove', e => onPointer(e.clientY));
+canvas.addEventListener('touchmove', e => {
+  onPointer(e.touches[0].clientY);
+  e.preventDefault();
+}, { passive: false });
+canvas.addEventListener('touchstart', e => {
+  onPointer(e.touches[0].clientY);
+}, { passive: true });
+
+// 键盘
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowUp') { openness = clamp(openness + 0.08, 0, 1); mouseYratio = openness; }
+  if (e.key === 'ArrowDown') { openness = clamp(openness - 0.08, 0, 1); mouseYratio = openness; }
+  const n = parseInt(e.key);
+  if (n >= 1 && n <= 5) switchModel(MODEL_LIST[n-1]);
+});
+
+// 窗口
+window.addEventListener('resize', () => {
+  cam.aspect = innerWidth / innerHeight;
+  cam.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// ─── 模型切换 ───
+function switchModel(name) {
+  curModel = name;
+  const pos = GENS[name](N);
+  for (let i = 0; i < N*3; i++) tgtP[i] = pos[i];
+  document.querySelectorAll('.model-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.model === name));
+}
+
+// ─── 摄像头 (可选) ───
+async function toggleCamera() {
+  const btn = document.getElementById('camToggle');
+  if (camActive) {
+    camActive = false;
+    mode = 'mouse';
+    btn.textContent = '📷 启用摄像头手势';
+    btn.classList.remove('active');
+    document.getElementById('ctrlLabel').textContent = '🖱 鼠标 / 触屏';
+    document.getElementById('mode-badge').textContent = '🖱 鼠标上下移动控制扩散';
+    return;
+  }
+  btn.textContent = '⏳ 请求摄像头...';
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240, facingMode: 'user' } });
+    const video = document.createElement('video');
+    video.srcObject = stream;
+    video.playsInline = true;
+    video.play();
+    // 加载 MediaPipe
+    await loadMediaPipe(video);
+    camActive = true;
+    mode = 'camera';
+    btn.textContent = '📷 摄像头已启用';
+    btn.classList.add('active');
+    document.getElementById('ctrlLabel').textContent = '✋ 摄像头手势';
+    document.getElementById('mode-badge').textContent = '✋ 张开/握拳控制粒子扩散';
+  } catch {
+    btn.textContent = '📷 摄像头不可用';
+    setTimeout(() => { btn.textContent = '📷 启用摄像头手势'; }, 2000);
+  }
+}
+
+function loadMediaPipe(video) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js';
+    s.onload = () => {
+      const s2 = document.createElement('script');
+      s2.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js';
+      s2.onload = () => {
+        try {
+          const hands = new Hands({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${f}` });
+          hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.7, minTrackingConfidence: 0.6 });
+          hands.onResults(r => {
+            if (r.multiHandLandmarks?.length > 0 && mode === 'camera') {
+              const lm = r.multiHandLandmarks[0];
+              const tips=[4,8,12,16,20], pb=lm[0], mb=lm[9];
+              const ps = dist3(lm[0], lm[9]);
+              let td = 0; for (const t of tips) td += dist3(lm[t], pb);
+              openness = clamp((td/tips.length - ps*0.3) / (ps*0.8), 0, 1);
+            }
+          });
+          const camera = new Camera(video, {
+            onFrame: async () => { try { await hands.send({ image: video }); } catch(e) {} },
+            width: 320, height: 240,
+          });
+          camera.start();
+          resolve();
+        } catch(e) { reject(e); }
+      };
+      document.head.appendChild(s2);
+    };
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+function dist3(a, b) {
+  return Math.sqrt((a.x-b.x)**2 + (a.y-b.y)**2 + (a.z-b.z)**2);
+}
+
+// ─── 动画循环 ───
+function animate() {
+  requestAnimationFrame(animate);
+
+  // 模型过渡
+  for (let i = 0; i < N*3; i++) {
+    if (Math.abs(baseP[i] - tgtP[i]) > 0.001) baseP[i] = lerp(baseP[i], tgtP[i], 0.035);
+    else baseP[i] = tgtP[i];
+  }
+
+  tgtSpread = openness * 7;
+  curSpread = lerp(curSpread, tgtSpread, 0.12);
+
+  for (let i = 0; i < N; i++) {
+    const i3=i*3;
+    curP[i3]=baseP[i3]+sDir[i3]*curSpread*sDist[i];
+    curP[i3+1]=baseP[i3+1]+sDir[i3+1]*curSpread*sDist[i];
+    curP[i3+2]=baseP[i3+2]+sDir[i3+2]*curSpread*sDist[i];
+  }
+  geom.attributes.position.needsUpdate = true;
+
+  group.rotation.y += 0.008;
+
+  // UI
+  document.getElementById('opennessText').textContent = `${Math.round(openness*100)}%`;
+  document.getElementById('opennessBar').style.width = `${openness*100}%`;
+
+  renderer.render(scene, cam);
+}
+
+// ─── 启动 ───
+document.getElementById('fullscreen-btn').onclick = () => {
+  if (!document.fullscreenElement) document.documentElement.requestFullscreen?.() || document.documentElement.webkitRequestFullscreen?.();
+  else document.exitFullscreen?.() || document.webkitExitFullscreen?.();
+};
+
+document.querySelectorAll('.model-btn').forEach(b => b.addEventListener('click', () => switchModel(b.dataset.model)));
+
+document.getElementById('colorPicker').addEventListener('input', e => {
+  selColor = e.target.value;
+  document.getElementById('colorHex').textContent = e.target.value;
+  updateColor();
+});
+
+document.getElementById('camToggle').addEventListener('click', toggleCamera);
+
+// 隐藏 loading
+document.getElementById('loading').classList.add('hidden');
+
+animate();
+</script>
+</body>
+</html>
